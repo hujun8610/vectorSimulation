@@ -6,7 +6,7 @@ build:
 
 run: build
 	@echo "运行应用..."
-	./logProcessor
+	./logProcessor -config config.yaml
 
 clean:
 	@echo "清理构建文件..."

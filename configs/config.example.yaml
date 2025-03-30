@@ -1,0 +1,43 @@
+logging:
+  level: debug
+  format: json
+
+kafka_clusters:
+  - name: kafka-cluster
+    brokers:
+      - kafka-1:9092
+      - kafka-2:9092
+      - kafka-3:9092
+
+es_clusters:
+  - name: es-cluster
+    hosts:
+      - http://elasticsearch-1:9200
+      - http://elasticsearch-2:9200
+      - http://elasticsearch-3:9200
+    username: elastic
+    password: changeme
+
+pipelines:
+  - name: kafka-to-es
+    enabled: true
+    input:
+      type: kafka
+      cluster: kafka-cluster
+      topics:
+        - topic-1
+      consumer_group: log-consumer
+      commit_interval: 1s
+    parser:
+      type: regex
+      pattern: '^(?P<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) (?P<level>[^\s]+) (?P<message>.*)$' # 正则表达式解析日志
+      time_field: timestamp
+      time_format: iso8601
+      add_fields:
+        service: log-processor
+    output:
+      type: elasticsearch
+      cluster: es-cluster
+      index_pattern: log-processor-%{+yyyy.MM.dd}
+      bulk_size: 100
+      flush_interval: 1s
