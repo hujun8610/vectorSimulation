@@ -3,44 +3,161 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/hujunhj8610/vector_simulation/internal/pkg/logger"
 	"gopkg.in/yaml.v3"
 )
 
-func LoadConfig(path string) (*Config, error) {
+// LoadConfig 从文件加载配置
+func LoadConfig(path string, log logger.Logger) (*Config, error) {
+	log.Info("Loading configuration file", "path", path)
+
 	data, err := os.ReadFile(path)
 	if err != nil {
+		log.Error("Failed to read config file", "path", path, "error", err)
 		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		log.Error("Failed to parse config file", "path", path, "error", err)
 		return nil, fmt.Errorf("error parsing config file: %w", err)
 	}
 
 	// 处理环境变量覆盖
-	if err := processEnvOverrides(&cfg); err != nil {
+	if err := processEnvOverrides(&cfg, log); err != nil {
+		log.Error("Failed to process environment variables", "error", err)
 		return nil, fmt.Errorf("error processing environment variables: %w", err)
 	}
 
 	// 验证配置
-	if err := validateConfig(&cfg); err != nil {
+	if err := validateConfig(&cfg, log); err != nil {
+		log.Error("Configuration validation failed", "error", err)
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
+
+	// 设置默认值
+	setDefaultValues(&cfg, log)
+
+	log.Info("Configuration loaded successfully",
+		"kafka_clusters", len(cfg.KafkaClusters),
+		"es_clusters", len(cfg.ESClusters),
+		"pipelines", len(cfg.Pipelines))
 
 	return &cfg, nil
 }
 
 // processEnvOverrides 处理环境变量覆盖配置
-func processEnvOverrides(cfg *Config) error {
-	// 实现环境变量到配置的映射
-	// 例如 LOG_PROCESSOR_LOGGING_LEVEL 环境变量会覆盖 cfg.Logging.Level
-	// ...
+func processEnvOverrides(cfg *Config, log logger.Logger) error {
+	log.Debug("Processing environment variables")
+
+	// 处理日志配置环境变量
+	if level := os.Getenv("LOG_LEVEL"); level != "" {
+		log.Debug("Overriding log level from environment", "level", level)
+		cfg.Logging.Level = level
+	}
+
+	if format := os.Getenv("LOG_FORMAT"); format != "" {
+		log.Debug("Overriding log format from environment", "format", format)
+		cfg.Logging.Format = format
+	}
+
+	// 处理Kafka环境变量
+	for i := range cfg.KafkaClusters {
+		cluster := &cfg.KafkaClusters[i]
+		envPrefix := "KAFKA_" + strings.ToUpper(cluster.Name) + "_"
+
+		if brokers := os.Getenv(envPrefix + "BROKERS"); brokers != "" {
+			log.Debug("Overriding Kafka brokers from environment",
+				"cluster", cluster.Name,
+				"brokers", brokers)
+			cluster.Brokers = strings.Split(brokers, ",")
+		}
+
+		if username := os.Getenv(envPrefix + "USERNAME"); username != "" && cluster.SASL != nil {
+			log.Debug("Overriding Kafka SASL username from environment", "cluster", cluster.Name)
+			cluster.SASL.Username = username
+		}
+
+		if password := os.Getenv(envPrefix + "PASSWORD"); password != "" && cluster.SASL != nil {
+			log.Debug("Overriding Kafka SASL password from environment", "cluster", cluster.Name)
+			cluster.SASL.Password = password
+		}
+	}
+
+	// 处理ES环境变量
+	for i := range cfg.ESClusters {
+		cluster := &cfg.ESClusters[i]
+		envPrefix := "ES_" + strings.ToUpper(cluster.Name) + "_"
+
+		if hosts := os.Getenv(envPrefix + "HOSTS"); hosts != "" {
+			log.Debug("Overriding ES hosts from environment",
+				"cluster", cluster.Name,
+				"hosts", hosts)
+			cluster.Hosts = strings.Split(hosts, ",")
+		}
+
+		if username := os.Getenv(envPrefix + "USERNAME"); username != "" {
+			log.Debug("Overriding ES username from environment", "cluster", cluster.Name)
+			cluster.Username = username
+		}
+
+		if password := os.Getenv(envPrefix + "PASSWORD"); password != "" {
+			log.Debug("Overriding ES password from environment", "cluster", cluster.Name)
+			cluster.Password = password
+		}
+	}
+
 	return nil
 }
 
+// setDefaultValues 为配置中未设置的字段设置默认值
+func setDefaultValues(cfg *Config, log logger.Logger) {
+	// 设置日志默认值
+	if cfg.Logging.Level == "" {
+		log.Debug("Setting default log level", "level", "info")
+		cfg.Logging.Level = "info"
+	}
+
+	if cfg.Logging.Format == "" {
+		log.Debug("Setting default log format", "format", "console")
+		cfg.Logging.Format = "console"
+	}
+
+	// 设置每个Pipeline的默认值
+	for i := range cfg.Pipelines {
+		p := &cfg.Pipelines[i]
+
+		// 设置Parser默认值
+		if p.Parser.TimeField == "" {
+			p.Parser.TimeField = "@timestamp"
+		}
+
+		if p.Parser.TimeFormat == "" {
+			p.Parser.TimeFormat = "2006-01-02T15:04:05Z07:00" // RFC3339
+		}
+
+		// 设置输出默认值
+		if p.Output.BulkSize <= 0 {
+			p.Output.BulkSize = 1000
+		}
+
+		if p.Output.FlushInterval == "" {
+			p.Output.FlushInterval = "5s"
+		}
+
+		log.Debug("Applied default values to pipeline",
+			"pipeline", p.Name,
+			"bulk_size", p.Output.BulkSize,
+			"flush_interval", p.Output.FlushInterval)
+	}
+}
+
 // validateConfig 验证配置的有效性
-func validateConfig(cfg *Config) error {
+func validateConfig(cfg *Config, log logger.Logger) error {
+	log.Debug("Validating configuration")
+
 	// 验证Kafka集群配置
 	kafkaClusters := make(map[string]bool)
 	for _, k := range cfg.KafkaClusters {
@@ -107,10 +224,8 @@ func validateConfig(cfg *Config) error {
 		if p.Output.IndexPattern == "" {
 			return fmt.Errorf("pipeline %s has no elasticsearch index pattern", p.Name)
 		}
-		if p.Output.BulkSize <= 0 {
-			return fmt.Errorf("pipeline %s has invalid bulk size: %d", p.Name, p.Output.BulkSize)
-		}
 	}
 
+	log.Debug("Configuration validation completed successfully")
 	return nil
 }

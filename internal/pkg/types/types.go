@@ -20,9 +20,10 @@ type Event struct {
 	Fields    map[string]interface{}
 }
 
-func NewEvent(timestamp time.Time, level string, message string) *Event {
+func NewEvent(timestamp time.Time) *Event {
 	return &Event{
 		Timestamp: timestamp,
+		Fields:    make(map[string]interface{}),
 	}
 }
 

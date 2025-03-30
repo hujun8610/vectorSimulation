@@ -19,11 +19,11 @@ func main() {
 	flag.Parse()
 
 	// 初始化日志
-	log := logger.NewLogger("debug", "json")
+	log := logger.NewLogger("info", "json")
 	log.Info("Starting log processor...")
 
 	// 加载配置
-	cfg, err := config.LoadConfig(*configPath)
+	cfg, err := config.LoadConfig(*configPath, log)
 	if err != nil {
 		log.Fatal("Failed to load configuration", "error", err)
 	}
