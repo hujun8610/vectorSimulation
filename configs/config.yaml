@@ -1,0 +1,41 @@
+logging:
+  level: debug
+  format: json
+
+kafka_clusters:
+  - name: kafka-cluster
+    brokers:
+      - localhost:29092
+      - localhost:29093
+      - localhost:29094
+
+es_clusters:
+  - name: es-cluster
+    hosts:
+      - http://localhost:9200
+    username: elastic
+    password: test@123456
+
+pipelines:
+  - name: kafka-to-es
+    enabled: true
+    input:
+      type: kafka
+      cluster: kafka-cluster
+      topics:
+        - nginx-log-topic
+      consumer_group: nginx-log-consumer
+      commit_interval: 1s
+    parser:
+      type: regex
+      pattern: '^(?<client_ip>[\d.]+|[a-fA-F0-9:]+) (?<ident>\S+) (?<auth>\S+) \[(?<timestamp>[^\]]+)\] "(?<request>[^"]+)" (?<response_code>\d{3}) (?<bytes_sent>\d+|-)? "(?<referrer>[^"]*)" "(?<user_agent>[^"]*)"$' # 正则表达式解析日志
+      time_field: timestamp
+      time_format: iso8601
+      add_fields:
+        service: log-processor
+    output:
+      type: elasticsearch
+      cluster: es-cluster
+      index_pattern: log-processor-%{+yyyy.MM.dd}
+      bulk_size: 100
+      flush_interval: 1s

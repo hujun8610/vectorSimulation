@@ -94,11 +94,11 @@ func NewPipeline(
 	var parser parser.Parser
 	switch cfg.Parser.Type {
 	case "regex":
-		parser, err = grok.NewGrokParser(&cfg.Parser)
+		parser, err = regex.NewRegexParser(&cfg.Parser)
 	case "json":
 		parser, err = json.NewJSONParser(&cfg.Parser)
 	case "grok":
-		parser, err = regex.NewRegexParser(&cfg.Parser)
+		parser, err = grok.NewGrokParser(&cfg.Parser)
 	default:
 		return nil, fmt.Errorf("unsupported parser type: %s", cfg.Parser.Type)
 	}
